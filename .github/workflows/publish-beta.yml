@@ -32,6 +32,9 @@ jobs:
           RELEASE_CHANNEL: beta
       - name: Package source code
         run: git archive --format=tar.gz --prefix=it-step-auto-grader-${GITHUB_SHA}/ "$GITHUB_SHA" -o dist/it-step-auto-grader-source-beta.tar.gz
+      - name: Package unpacked extension download
+        run: |
+          (cd dist/it-step-auto-grader-extension && zip -q -r ../it-step-auto-grader-extension-beta-unpacked.zip .)
       - name: Upload unpacked extension
         uses: actions/upload-artifact@v4
         with:
@@ -88,6 +91,7 @@ jobs:
         run: |
           gh release create "$RELEASE_TAG" \
             dist/it-step-auto-grader-extension-beta.zip \
+            dist/it-step-auto-grader-extension-beta-unpacked.zip \
             dist/it-step-auto-grader-source-beta.tar.gz \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
