@@ -98,6 +98,12 @@ window.stopAllFormsSequentially();    // запросить остановку
 - `step-auto-grader:history` — последние 20 результатов (время, форма,
   статус, оценка и причина).
 
+Настройки записываются через версионированный storage adapter в формате
+`{ "version": 1, "data": { ... } }`. Некорректный JSON, неизвестная версия,
+недоступный storage и ошибки квоты используют безопасные значения по умолчанию
+и не останавливают обработку. Изменения настройки в другой вкладке приходят
+через событие `storage` и сразу отражаются в панели.
+
 Историю можно очистить вручную из Console:
 
 ```js
@@ -169,6 +175,8 @@ textarea[formcontrolname="coment"]
 ```text
 step-auto-grader/
 ├── index.js   # automation flow, UI, state и localStorage
+├── test/      # unit-тесты storage adapter
+├── package.json
 └── README.md  # инструкция, API и ограничения
 ```
 
@@ -178,6 +186,7 @@ step-auto-grader/
 
 ```bash
 node --check index.js
+npm test
 ```
 
 ## Disclaimer
