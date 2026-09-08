@@ -1,0 +1,40 @@
+name: Publish beta
+
+on:
+  push:
+    branches:
+      - dev
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-beta
+  cancel-in-progress: true
+
+jobs:
+  test-build-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run test:vitest
+      - run: npm run build
+        env:
+          RELEASE_CHANNEL: beta
+      - name: Publish beta release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: v0.0.0-beta.${{ github.run_number }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            dist/it-step-auto-grader-extension-beta.zip \
+            --repo "$GITHUB_REPOSITORY" \
+            --prerelease \
+            --title "IT Step Auto Grader $RELEASE_TAG" \
+            --generate-notes

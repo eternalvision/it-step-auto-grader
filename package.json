@@ -1,7 +1,14 @@
 {
-  "name": "step-auto-grader",
+  "name": "it-step-auto-grader",
   "private": true,
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "test:vitest": "vitest run --config vitest.config.mjs",
+    "build": "vite build && node scripts/build-extension.js",
+    "package": "npm run build"
+  },
+  "devDependencies": {
+    "vite": "^8.2.2",
+    "vitest": "^5.0.0"
   }
 }
