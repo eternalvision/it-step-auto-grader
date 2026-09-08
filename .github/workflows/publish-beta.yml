@@ -83,6 +83,7 @@ jobs:
             dist/it-step-auto-grader-extension-beta.zip \
             dist/it-step-auto-grader-source-beta.tar.gz \
             --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
             --prerelease \
             --title "IT Step Auto Grader $RELEASE_TAG" \
             --generate-notes
