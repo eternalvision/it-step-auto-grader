@@ -1,5 +1,5 @@
 {
-  "name": "step-auto-grader",
+  "name": "it-step-auto-grader",
   "private": true,
   "scripts": {
     "test": "node --test"

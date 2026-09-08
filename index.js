@@ -30,6 +30,7 @@
   const SETTINGS_KEY = "step-auto-grader:settings";
   const HISTORY_KEY = "step-auto-grader:history";
   const HISTORY_SCHEMA_VERSION = 2;
+  const SETTINGS_SCHEMA_VERSION = 1;
   const MAX_HISTORY = 20;
   const MAX_HISTORY_LABEL = 120;
   const MAX_HISTORY_REASON = 160;
@@ -38,6 +39,88 @@
   const EMPTY_COMMENT = Symbol("empty_comment");
   const ALLOWED_STRATEGIES = new Set(["random", "preferred-low", "preferred-high"]);
   const isTestRun = window.__STEP_AUTO_GRADER_TEST__ === true;
+
+  function createStorageAdapter({
+    storage,
+    key,
+    version,
+    defaults,
+    normalize = (value) => value,
+    onError = (error, operation) =>
+      console.warn(`[step-auto-grader] Не удалось выполнить ${operation} в localStorage:`, error),
+  }) {
+    const fallback = () => normalize({ ...defaults });
+    const report = (error, operation) => {
+      try {
+        onError(error, operation);
+      } catch (handlerError) {
+        console.warn("[step-auto-grader] Не удалось сообщить об ошибке storage:", handlerError);
+      }
+    };
+
+    return {
+      read() {
+        try {
+          const stored = storage?.getItem(key);
+          if (!stored) {
+            return fallback();
+          }
+          const envelope = JSON.parse(stored);
+          if (
+            !envelope ||
+            envelope.version !== version ||
+            !Object.prototype.hasOwnProperty.call(envelope, "data")
+          ) {
+            return fallback();
+          }
+          return normalize(envelope.data);
+        } catch (error) {
+          report(error, "чтение");
+          return fallback();
+        }
+      },
+      write(value) {
+        try {
+          if (!storage || typeof storage.setItem !== "function") {
+            throw new Error("localStorage недоступен");
+          }
+          const data = normalize(value);
+          storage.setItem(key, JSON.stringify({ version, data }));
+          return true;
+        } catch (error) {
+          report(error, "сохранение");
+          return false;
+        }
+      },
+      handleStorageEvent(event) {
+        if (!event || event.key !== key) {
+          return null;
+        }
+        if (event.newValue === null) {
+          return fallback();
+        }
+        try {
+          const envelope = JSON.parse(event.newValue);
+          if (
+            !envelope ||
+            envelope.version !== version ||
+            !Object.prototype.hasOwnProperty.call(envelope, "data")
+          ) {
+            return fallback();
+          }
+          return normalize(envelope.data);
+        } catch (error) {
+          report(error, "синхронизация");
+          return fallback();
+        }
+      },
+    };
+  }
+
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = { createStorageAdapter };
+    return;
+  }
 
   const state = {
     settings: loadSettings(),
@@ -152,22 +235,29 @@
     };
   }
 
-  function loadSettings() {
+  function getLocalStorage() {
     try {
-      const stored = window.localStorage.getItem(SETTINGS_KEY);
-      return stored ? normalizeSettings(JSON.parse(stored)) : normalizeSettings();
+      return window.localStorage;
     } catch (error) {
-      console.warn("[step-auto-grader] Не удалось прочитать настройки:", error);
-      return normalizeSettings();
+      console.warn("[step-auto-grader] localStorage недоступен:", error);
+      return null;
     }
   }
 
+  const settingsStorage = createStorageAdapter({
+    storage: getLocalStorage(),
+    key: SETTINGS_KEY,
+    version: SETTINGS_SCHEMA_VERSION,
+    defaults: DEFAULT_SETTINGS,
+    normalize: normalizeSettings,
+  });
+
+  function loadSettings() {
+    return settingsStorage.read();
+  }
+
   function saveSettings() {
-    try {
-      window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
-    } catch (error) {
-      console.warn("[step-auto-grader] Не удалось сохранить настройки:", error);
-    }
+    settingsStorage.write(state.settings);
   }
 
   function createHistoryId() {
@@ -1107,6 +1197,7 @@
       captureSubmitSnapshot,
       detectSubmitState,
       waitSubmitFinished,
+      createStorageAdapter,
     };
     window.__STEP_AUTO_GRADER_TEST_API__ = window.__stepAutoGraderTestApi;
     window.stepAutoGraderHistory = Object.freeze({
@@ -1123,6 +1214,16 @@
     maxEntries: MAX_HISTORY,
     schemaVersion: HISTORY_SCHEMA_VERSION,
   });
+  function observeStorage() {
+    window.addEventListener("storage", (event) => {
+      const nextSettings = settingsStorage.handleStorageEvent(event);
+      if (nextSettings === null) {
+        return;
+      }
+      state.settings = nextSettings;
+      scheduleUiUpdate();
+    });
+    }
 
   window.processAllFormsSequentially = processAllSequentially;
   window.stopAllFormsSequentially = stopAllFormsSequentially;
@@ -1147,4 +1248,6 @@
     detectSubmitState,
     waitSubmitFinished,
   });
+  window.StepAutoGraderStorageAdapter = createStorageAdapter;
+  observeStorage();
 })();
