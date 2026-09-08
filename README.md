@@ -33,7 +33,11 @@
 Оно не содержит background/popup-кода, потому что панель и обработка уже
 создаются самим скриптом на странице.
 
-1. Откройте `chrome://extensions` и включите **Developer mode**.
+1. Откройте `chrome://extensions` в Google Chrome, `brave://extensions` в
+   Brave или `edge://extensions` в Edge и включите **Developer mode**.
+   Не используйте `dil://extensions/`: это страница расширений браузера Dia,
+   а не Google Chrome, и его совместимость с локальными Manifest V3
+   content-script расширениями не гарантируется.
 2. Нажмите **Load unpacked** и выберите папку
    `dist/it-step-auto-grader-extension` после распаковки исходного кода или
    скачивания CI artifact `*-unpacked`. Выбирать ZIP-файл в этом диалоге нельзя:
