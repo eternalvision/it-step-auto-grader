@@ -10,8 +10,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: publish-alpha-${{ github.ref }}
-  cancel-in-progress: true
+  group: publish-alpha
+  cancel-in-progress: false
 
 jobs:
   test-build-publish:
@@ -28,6 +28,18 @@ jobs:
       - run: npm run build
         env:
           RELEASE_CHANNEL: alpha
+      - name: Calculate alpha version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest="$(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/tags?per_page=100" --jq '.[].name' |
+              sed -nE 's/^v0\.0\.([0-9]+)-alpha$/\1/p' |
+              sort -n | tail -n 1
+          )"
+          latest="${latest:-0}"
+          echo "tag=v0.0.$((latest + 1))-alpha" >> "$GITHUB_OUTPUT"
       - name: Package source code
         run: git archive --format=tar.gz --prefix=it-step-auto-grader-${GITHUB_SHA}/ "$GITHUB_SHA" -o dist/it-step-auto-grader-source-alpha.tar.gz
       - name: Upload unpacked extension
@@ -40,7 +52,7 @@ jobs:
       - name: Publish alpha release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: v0.0.${{ github.run_number }}-alpha
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
           gh release create "$RELEASE_TAG" \
             dist/it-step-auto-grader-extension-alpha.zip \
