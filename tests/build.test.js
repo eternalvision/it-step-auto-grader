@@ -15,6 +15,10 @@ test("build creates a loadable Chrome extension archive", () => {
   const archive = path.join(root, "dist", "it-step-auto-grader-extension-dev.zip");
   assert.equal(fs.existsSync(archive), true);
 
+  const unpacked = path.join(root, "dist", "it-step-auto-grader-extension");
+  assert.equal(fs.existsSync(path.join(unpacked, "manifest.json")), true);
+  assert.equal(fs.existsSync(path.join(unpacked, "index.js")), true);
+
   const listing = execFileSync("unzip", ["-Z1", archive], {
     cwd: root,
     encoding: "utf8",
