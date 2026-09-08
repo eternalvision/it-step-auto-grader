@@ -22,11 +22,32 @@
 - `dry-run`: выбирает и логирует preview, но **не нажимает** оценку и
   `Принять`, не меняет комментарий;
 - live counters: успешные формы, preview, пропуски и ошибки;
+- summary по текущему запуску и распределение выбранных оценок;
 - последние обработанные формы и выбранные оценки в localStorage;
 - MutationObserver для обновления счётчиков при появлении новых форм;
 - понятный лог в DevTools Console и остановка между шагами и ожиданиями.
 
-## Запуск
+## Запуск из Chrome Extension
+
+Расширение Manifest V3 переиспользует тот же `index.js` как content script.
+Оно не содержит background/popup-кода, потому что панель и обработка уже
+создаются самим скриптом на странице.
+
+1. Откройте `chrome://extensions` и включите **Developer mode**.
+2. Нажмите **Load unpacked** и выберите папку
+   `dist/it-step-auto-grader-extension` после распаковки исходного кода или
+   скачивания CI artifact `*-unpacked`. Выбирать ZIP-файл в этом диалоге нельзя:
+   Chrome принимает здесь только директорию с `manifest.json`.
+3. Откройте или перезагрузите страницу проверки домашних заданий IT Step
+   Academy на домене `*.itstep.org`, `*.itstep.org.ua` или `*.itstep.ua`.
+4. Панель `step / auto grader` появится справа снизу. Перед реальной обработкой
+   проверьте настройки и при необходимости включите `dry-run`.
+
+Если вкладка уже была открыта во время установки, перезагрузите её после
+загрузки расширения. Расширение не запрашивает permissions и не загружает
+ресурсы с внешних CDN.
+
+## Запуск через Console
 
 1. Откройте страницу проверки домашних заданий IT Step Academy.
 2. Откройте DevTools (`F12` или `Cmd + Option + I` на macOS).
@@ -44,7 +65,7 @@
 | --- | ---: | --- |
 | `min grade` | `9` | Нижняя граница предпочитаемого диапазона |
 | `max grade` | `12` | Верхняя граница предпочитаемого диапазона |
-| `комментарий` | `good` | Заполняется только если `Принять` disabled |
+| `комментарий` | `good` | Заполняется только если `Принять` disabled; пустое значение отключает автозаполнение |
 | `max failures` | `5` | Остановка после подряд идущих ошибок |
 | `стратегия` | `random` | Алгоритм выбора доступной оценки |
 | `dry-run` | выключен | Только preview, без действий изменения страницы |
@@ -95,8 +116,11 @@ window.stopAllFormsSequentially();    // запросить остановку
 Скрипт сохраняет только настройки и локальную историю в текущем origin:
 
 - `step-auto-grader:settings` — настройки панели;
-- `step-auto-grader:history` — последние 20 результатов (время, форма,
-  статус, оценка и причина).
+- `step-auto-grader:history` — последние 20 валидных результатов. Значение
+  хранится как `{ "version": 2, "entries": [...] }`; записи содержат
+  идентификаторы студента/формы, время, подпись, статус, оценку и причину.
+  Старый формат-массив мигрируется автоматически, повреждённые записи
+  отбрасываются, а лимит применяется при чтении и записи.
 
 Историю можно очистить вручную из Console:
 
@@ -149,15 +173,11 @@ textarea[formcontrolname="coment"]
 ```
 
 Для комментария используется setter `HTMLTextAreaElement.prototype.value`,
-после чего отправляются `input`, `change` и `blur`, чтобы Angular Reactive Forms
-увидел изменение. Успешный submit подтверждается только сильным сигналом Angular UI: удалением
-исходной формы, success-состоянием (`data-state`, `data-status`, `aria-label`
-или state-классами) либо success-сообщением в snackbar/live-region. Изменение
-`disabled`/`aria-disabled`/`aria-busy` или CSS loading-класса считается только
-промежуточным сигналом: само по себе оно не завершает submit. Error-сообщение
-в live-region немедленно считается неудачей, а отсутствие подтверждения за
-`maxWaitSubmit` — таймаутом, чтобы смена количества форм или случайный rerender
-не давали ложный успех.
+после чего отправляются `input`, `change` и `blur` в том же window, чтобы Angular
+Reactive Forms увидел изменение. Если комментарий пуст, автозаполнение не
+выполняется и форма считается ошибочной, поскольку disabled `Принять` нельзя
+разблокировать без текста. Успешный submit определяется по удалению исходной формы,
+изменению количества форм или появлению другой необработанной формы.
 
 ## Ограничения и безопасность
 
@@ -174,8 +194,11 @@ textarea[formcontrolname="coment"]
 
 ```text
 step-auto-grader/
-├── index.js   # automation flow, UI, state и localStorage
-└── README.md  # инструкция, API и ограничения
+├── index.js              # automation flow, UI, state и localStorage
+├── manifest.json         # Chrome Manifest V3 и content-script wiring
+├── tests/
+│   └── extension.test.js # встроенные Node-тесты манифеста и wiring
+└── README.md             # инструкция, API и ограничения
 ```
 
 ## Проверка
@@ -184,7 +207,50 @@ step-auto-grader/
 
 ```bash
 node --check index.js
+node --test tests/extension.test.js
+node --test history.test.js
 ```
+
+Для Tampermonkey:
+
+```bash
+node --check tampermonkey/step-auto-grader.user.js
+node --test test/tampermonkey-userscript.test.js
+```
+
+Userscript находится в `tampermonkey/step-auto-grader.user.js`, содержит
+metadata для `itstep.org`/`itstep.ua` и встроенный код без внешних CDN.
+
+Чистые helpers стратегий и счётчиков покрыты отдельными тестами:
+
+```bash
+node --test index.test.js
+```
+
+Поведение start/stop и состояния кнопок проверяются встроенным Node test runner:
+
+```bash
+node --test test/index.test.js
+```
+
+## Ветки и сборка
+
+`main` остаётся стабильной веткой и не получает эти изменения напрямую.
+Ветка `dev` является интеграционной веткой разработки: в ней собраны все
+feature-ветки, и именно её следует использовать для совместной проверки.
+
+Каждая feature-ветка должна завершаться тестами и build-проверкой:
+
+```bash
+npm test
+npm run build
+```
+
+`npm run build` проверяет Manifest V3 и создаёт
+`dist/it-step-auto-grader-extension.zip`. Архив можно загрузить через
+`chrome://extensions` в режиме разработчика. CI запускает обе команды для
+каждого push и pull request, поэтому ветку нельзя считать готовой без тестов и
+сборки.
 
 ## Disclaimer
 
