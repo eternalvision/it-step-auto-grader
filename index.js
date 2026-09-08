@@ -31,6 +31,7 @@
   const HISTORY_KEY = "step-auto-grader:history";
   const MAX_HISTORY = 20;
   const STOPPED = Symbol("stopped");
+  const EMPTY_COMMENT = Symbol("empty_comment");
   const ALLOWED_STRATEGIES = new Set(["random", "preferred-low", "preferred-high"]);
 
   const state = {
@@ -71,6 +72,10 @@
     return typeof value === "string" ? value.slice(0, maxLength) : fallback;
   }
 
+  function normalizeComment(value) {
+    return safeString(value, DEFAULT_SETTINGS.autoComment, 1_000);
+  }
+
   function normalizeSettings(value = {}) {
     const minGrade = safeInteger(value.minGrade, DEFAULT_SETTINGS.minGrade, 0, 100);
     const maxGrade = safeInteger(value.maxGrade, DEFAULT_SETTINGS.maxGrade, 0, 100);
@@ -79,7 +84,7 @@
       ...DEFAULT_SETTINGS,
       minGrade: Math.min(minGrade, maxGrade),
       maxGrade: Math.max(minGrade, maxGrade),
-      autoComment: safeString(value.autoComment, DEFAULT_SETTINGS.autoComment, 1_000),
+      autoComment: normalizeComment(value.autoComment),
       maxFailures: safeInteger(value.maxFailures, DEFAULT_SETTINGS.maxFailures, 1, 100),
       dryRun: value.dryRun === true,
       strategy: ALLOWED_STRATEGIES.has(value.strategy) ? value.strategy : DEFAULT_SETTINGS.strategy,
@@ -311,7 +316,10 @@
   };
 
   const setNativeTextareaValue = (textarea, value) => {
-    const descriptor = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value");
+    const textareaWindow = textarea.ownerDocument?.defaultView || window;
+    const textareaPrototype = textareaWindow.HTMLTextAreaElement?.prototype;
+    const descriptor = textareaPrototype &&
+      Object.getOwnPropertyDescriptor(textareaPrototype, "value");
     if (descriptor?.set) {
       descriptor.set.call(textarea, value);
       return;
@@ -328,10 +336,15 @@
     if (isStopped()) {
       return STOPPED;
     }
+    if (!settings.autoComment) {
+      console.log("  авто-комментарий пуст, поле не заполняется");
+      return EMPTY_COMMENT;
+    }
 
     setNativeTextareaValue(textarea, settings.autoComment);
+    const textareaWindow = textarea.ownerDocument?.defaultView || window;
     for (const eventName of ["input", "change", "blur"]) {
-      textarea.dispatchEvent(new Event(eventName, { bubbles: true }));
+      textarea.dispatchEvent(new textareaWindow.Event(eventName, { bubbles: true }));
     }
     console.log(`  добавлен авто-комментарий "${settings.autoComment}"`);
     return true;
@@ -389,6 +402,9 @@
       const commentAdded = fillAutoComment(form, settings);
       if (commentAdded === STOPPED) {
         return { ok: false, stopped: true, reason: "stopped_before_comment" };
+      }
+      if (commentAdded === EMPTY_COMMENT) {
+        return { ok: false, reason: "comment_empty" };
       }
       if (!commentAdded) {
         return { ok: false, reason: "comment_field_missing" };
@@ -817,6 +833,18 @@
     }
     state.observer = new MutationObserver(() => scheduleUiUpdate());
     state.observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  if (window.__STEP_AUTO_GRADER_TEST__) {
+    window.__stepAutoGraderTestApi = {
+      fillAutoComment,
+      loadSettings,
+      normalizeComment,
+      normalizeSettings,
+      saveSettings,
+      state,
+    };
+    return;
   }
 
   window.processAllFormsSequentially = processAllSequentially;
