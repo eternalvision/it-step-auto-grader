@@ -202,6 +202,16 @@ node --check index.js
 node --test tests/extension.test.js
 ```
 
+Для Tampermonkey:
+
+```bash
+node --check tampermonkey/step-auto-grader.user.js
+node --test test/tampermonkey-userscript.test.js
+```
+
+Userscript находится в `tampermonkey/step-auto-grader.user.js`, содержит
+metadata для `itstep.org`/`itstep.ua` и встроенный код без внешних CDN.
+
 ## Disclaimer
 
 Проект является вспомогательным инструментом browser automation. Он не является
