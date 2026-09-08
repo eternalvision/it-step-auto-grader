@@ -26,7 +26,25 @@
 - MutationObserver для обновления счётчиков при появлении новых форм;
 - понятный лог в DevTools Console и остановка между шагами и ожиданиями.
 
-## Запуск
+## Запуск из Chrome Extension
+
+Расширение Manifest V3 переиспользует тот же `index.js` как content script.
+Оно не содержит background/popup-кода, потому что панель и обработка уже
+создаются самим скриптом на странице.
+
+1. Откройте `chrome://extensions` и включите **Developer mode**.
+2. Нажмите **Load unpacked** и выберите корень этого проекта (папку с
+   `manifest.json`).
+3. Откройте или перезагрузите страницу проверки домашних заданий IT Step
+   Academy на домене `*.itstep.org`, `*.itstep.org.ua` или `*.itstep.ua`.
+4. Панель `step / auto grader` появится справа снизу. Перед реальной обработкой
+   проверьте настройки и при необходимости включите `dry-run`.
+
+Если вкладка уже была открыта во время установки, перезагрузите её после
+загрузки расширения. Расширение не запрашивает permissions и не загружает
+ресурсы с внешних CDN.
+
+## Запуск через Console
 
 1. Откройте страницу проверки домашних заданий IT Step Academy.
 2. Откройте DevTools (`F12` или `Cmd + Option + I` на macOS).
@@ -168,8 +186,11 @@ textarea[formcontrolname="coment"]
 
 ```text
 step-auto-grader/
-├── index.js   # automation flow, UI, state и localStorage
-└── README.md  # инструкция, API и ограничения
+├── index.js              # automation flow, UI, state и localStorage
+├── manifest.json         # Chrome Manifest V3 и content-script wiring
+├── tests/
+│   └── extension.test.js # встроенные Node-тесты манифеста и wiring
+└── README.md             # инструкция, API и ограничения
 ```
 
 ## Проверка
@@ -178,6 +199,7 @@ step-auto-grader/
 
 ```bash
 node --check index.js
+node --test tests/extension.test.js
 ```
 
 ## Disclaimer
