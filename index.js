@@ -59,7 +59,10 @@
   }
 
   function safeInteger(value, fallback, min, max) {
-    const number = Number(value);
+    const number = typeof value === "number" ||
+      (typeof value === "string" && value.trim() !== "")
+      ? Number(value)
+      : Number.NaN;
     if (!Number.isFinite(number)) {
       return fallback;
     }
@@ -71,14 +74,22 @@
     return typeof value === "string" ? value.slice(0, maxLength) : fallback;
   }
 
+  function normalizeGradeRange(minGrade, maxGrade) {
+    const normalizedMin = safeInteger(minGrade, DEFAULT_SETTINGS.minGrade, 0, 100);
+    const normalizedMax = safeInteger(maxGrade, DEFAULT_SETTINGS.maxGrade, 0, 100);
+
+    return {
+      minGrade: Math.min(normalizedMin, normalizedMax),
+      maxGrade: Math.max(normalizedMin, normalizedMax),
+    };
+  }
+
   function normalizeSettings(value = {}) {
-    const minGrade = safeInteger(value.minGrade, DEFAULT_SETTINGS.minGrade, 0, 100);
-    const maxGrade = safeInteger(value.maxGrade, DEFAULT_SETTINGS.maxGrade, 0, 100);
+    const gradeRange = normalizeGradeRange(value.minGrade, value.maxGrade);
 
     return {
       ...DEFAULT_SETTINGS,
-      minGrade: Math.min(minGrade, maxGrade),
-      maxGrade: Math.max(minGrade, maxGrade),
+      ...gradeRange,
       autoComment: safeString(value.autoComment, DEFAULT_SETTINGS.autoComment, 1_000),
       maxFailures: safeInteger(value.maxFailures, DEFAULT_SETTINGS.maxFailures, 1, 100),
       dryRun: value.dryRun === true,
@@ -258,14 +269,14 @@
       .filter((grade) => !Number.isNaN(grade));
   }
 
-  function getAvailableGrade(form, settings) {
-    const grades = getAvailableGrades(form);
+  function selectGradeFromRange(grades, settings = {}, random = Math.random) {
     if (!grades.length) {
       return null;
     }
 
+    const { minGrade, maxGrade } = normalizeGradeRange(settings.minGrade, settings.maxGrade);
     const preferred = grades.filter(
-      (grade) => grade >= settings.minGrade && grade <= settings.maxGrade
+      (grade) => grade >= minGrade && grade <= maxGrade
     );
     const pool = preferred.length ? preferred : grades;
 
@@ -276,7 +287,12 @@
       return Math.max(...pool);
     }
 
-    return pool[Math.floor(Math.random() * pool.length)];
+    const randomIndex = Math.floor(Number(random()) * pool.length);
+    return pool[Math.min(pool.length - 1, Math.max(0, randomIndex))];
+  }
+
+  function getAvailableGrade(form, settings) {
+    return selectGradeFromRange(getAvailableGrades(form), settings);
   }
 
   const clickGradeButton = (form, grade) => {
@@ -821,6 +837,10 @@
 
   window.processAllFormsSequentially = processAllSequentially;
   window.stopAllFormsSequentially = stopAllFormsSequentially;
+  window.stepAutoGraderTestables = Object.freeze({
+    normalizeGradeRange,
+    selectGradeFromRange,
+  });
   createPanel();
   observeDom();
 
