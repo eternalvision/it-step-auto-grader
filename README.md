@@ -26,7 +26,19 @@
 - MutationObserver для обновления счётчиков при появлении новых форм;
 - понятный лог в DevTools Console и остановка между шагами и ожиданиями.
 
-## Запуск
+## Запуск через Tampermonkey
+
+1. Установите Tampermonkey и откройте `tampermonkey/step-auto-grader.user.js`
+   в репозитории.
+2. Скопируйте файл целиком в новый userscript Tampermonkey и сохраните его.
+3. Откройте страницу проверки домашних заданий IT Step Academy.
+
+Userscript запускается на `itstep.org` и его поддоменах после загрузки DOM,
+содержит текущую логику `index.js` внутри себя и не загружает код или данные с
+внешних CDN. Глобальный `Symbol.for`-флаг пропускает повторную инъекцию при
+повторном запуске userscript в той же вкладке.
+
+## Запуск из Console
 
 1. Откройте страницу проверки домашних заданий IT Step Academy.
 2. Откройте DevTools (`F12` или `Cmd + Option + I` на macOS).
@@ -168,16 +180,20 @@ textarea[formcontrolname="coment"]
 
 ```text
 step-auto-grader/
-├── index.js   # automation flow, UI, state и localStorage
-└── README.md  # инструкция, API и ограничения
+├── index.js                              # automation flow, UI, state и localStorage
+├── tampermonkey/step-auto-grader.user.js # standalone Tampermonkey userscript
+├── test/tampermonkey-userscript.test.js  # metadata и guard tests
+└── README.md                             # инструкция, API и ограничения
 ```
 
 ## Проверка
 
-Синтаксис можно проверить без браузера:
+Синтаксис и userscript-тесты можно проверить без браузера:
 
 ```bash
 node --check index.js
+node --check tampermonkey/step-auto-grader.user.js
+node --test test/tampermonkey-userscript.test.js
 ```
 
 ## Disclaimer
