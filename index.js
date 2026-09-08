@@ -502,18 +502,103 @@
         : null;
     }, settings.maxWaitAccept, DEFAULT_SETTINGS.pollInterval, form);
 
-  const waitSubmitFinished = async (form, formsCountBeforeSubmit, settings) => {
+  const SUCCESS_TEXT = /(success|succeeded|saved|submitted|accepted|успеш|сохран|принят)/i;
+  const FAILURE_TEXT = /(error|failed|failure|ошибк|не удалось|неуспеш)/i;
+  const SUCCESS_STATE_SELECTOR = [
+    '[data-state="success"]',
+    '[data-status="success"]',
+    '[aria-label*="success" i]',
+    '[aria-label*="успеш" i]',
+    '.success',
+    '.submitted',
+    '.accepted',
+  ].join(",");
+  const LIVE_MESSAGE_SELECTOR = [
+    '[role="alert"]',
+    '[role="status"]',
+    '[aria-live="polite"]',
+    '[aria-live="assertive"]',
+    ".mat-snack-bar-container",
+    ".cdk-live-announcer-element",
+  ].join(",");
+
+  const getClassName = (element) =>
+    typeof element?.className === "string" ? element.className : "";
+
+  const captureSubmitSnapshot = (form, acceptButton) => ({
+    acceptDisabled: Boolean(acceptButton?.disabled),
+    acceptAriaDisabled: acceptButton?.getAttribute("aria-disabled") === "true",
+    acceptBusy: acceptButton?.getAttribute("aria-busy") === "true",
+    acceptClass: getClassName(acceptButton),
+    formClass: getClassName(form),
+  });
+
+  const hasSubmitControlChanged = (form, acceptButton, before) => {
+    if (!form?.isConnected || !acceptButton) {
+      return false;
+    }
+    const after = captureSubmitSnapshot(form, acceptButton);
+    return (
+      after.acceptDisabled !== before.acceptDisabled ||
+      after.acceptAriaDisabled !== before.acceptAriaDisabled ||
+      after.acceptBusy !== before.acceptBusy ||
+      after.acceptClass !== before.acceptClass ||
+      after.formClass !== before.formClass
+    );
+  };
+
+  const getVisibleText = (element) => element?.textContent?.replace(/\s+/g, " ").trim() || "";
+
+  const detectSubmitState = (form, acceptButton, before) => {
+    if (!form?.isConnected) {
+      return { success: true, reason: "form_removed" };
+    }
+
+    const successState = form.matches?.(SUCCESS_STATE_SELECTOR) ||
+      form.querySelector?.(SUCCESS_STATE_SELECTOR);
+    if (successState) {
+      return { success: true, reason: "success_state" };
+    }
+
+    const messages = Array.from(document.querySelectorAll(LIVE_MESSAGE_SELECTOR));
+    if (messages.some((message) => FAILURE_TEXT.test(getVisibleText(message)))) {
+      return { failure: true, reason: "failure_message" };
+    }
+    const successMessage = messages.find((message) => SUCCESS_TEXT.test(getVisibleText(message)));
+    if (successMessage) {
+      return { success: true, reason: "success_message" };
+    }
+
+    return {
+      controlChanged: hasSubmitControlChanged(form, acceptButton, before),
+    };
+  };
+
+  const waitSubmitFinished = async (form, acceptButton, settings, before = captureSubmitSnapshot(form, acceptButton)) => {
+    let controlChangeLogged = false;
     const result = await waitUntil(() => {
-      if (!form.isConnected) {
-        return true;
+      const state = detectSubmitState(form, acceptButton, before);
+      if (state.success || state.failure) {
+        return state;
       }
-      if (document.querySelectorAll(SELECTORS.forms).length !== formsCountBeforeSubmit) {
-        return true;
+      if (state.controlChanged && !controlChangeLogged) {
+        controlChangeLogged = true;
+        console.debug("[step-auto-grader] submit control changed; waiting for a success signal");
       }
-      const nextForm = findUnprocessedForm();
-      return nextForm && nextForm !== form;
-    }, settings.maxWaitSubmit, DEFAULT_SETTINGS.pollInterval, document.body || document.documentElement);
-    return result === STOPPED ? STOPPED : Boolean(result);
+      return false;
+    }, settings.maxWaitSubmit);
+    if (result === STOPPED) {
+      return STOPPED;
+    }
+    if (result?.success) {
+      console.log(`  submit подтверждён: ${result.reason}`);
+      return true;
+    }
+    if (result?.failure) {
+      console.log(`  submit отклонён: ${result.reason}`);
+      return false;
+    }
+    return false;
   };
 
   const submitForm = async (form, settings) => {
@@ -556,11 +641,11 @@
       return { ok: false, stopped: isStopped(), reason: "form_disconnected_before_submit" };
     }
 
-    const formsCountBeforeSubmit = document.querySelectorAll(SELECTORS.forms).length;
+    const submitSnapshot = captureSubmitSnapshot(form, acceptButton);
     acceptButton.click();
     console.log('  нажата кнопка "Принять"');
 
-    const submitted = await waitSubmitFinished(form, formsCountBeforeSubmit, settings);
+    const submitted = await waitSubmitFinished(form, acceptButton, settings, submitSnapshot);
     if (submitted === STOPPED) {
       return { ok: false, stopped: true, reason: "stopped_waiting_for_submit" };
     }
@@ -1019,6 +1104,9 @@
       selectGradeFromRange,
       processAllSequentially,
       getState: () => state,
+      captureSubmitSnapshot,
+      detectSubmitState,
+      waitSubmitFinished,
     };
     window.__STEP_AUTO_GRADER_TEST_API__ = window.__stepAutoGraderTestApi;
     window.stepAutoGraderHistory = Object.freeze({
@@ -1054,4 +1142,9 @@
     console.log("скрипт загружен. UI готов, запускаю processAllFormsSequentially()");
     void processAllSequentially();
   }
+  window.__stepAutoGraderInternals = Object.freeze({
+    captureSubmitSnapshot,
+    detectSubmitState,
+    waitSubmitFinished,
+  });
 })();
