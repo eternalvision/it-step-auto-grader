@@ -33,6 +33,7 @@
   const STOPPED = Symbol("stopped");
   const EMPTY_COMMENT = Symbol("empty_comment");
   const ALLOWED_STRATEGIES = new Set(["random", "preferred-low", "preferred-high"]);
+  const isTestRun = window.__STEP_AUTO_GRADER_TEST__ === true;
 
   const state = {
     settings: loadSettings(),
@@ -531,7 +532,7 @@
 
   const runSequentially = async () => {
     const settings = normalizeSettings(state.settings);
-    const previewedForms = new WeakSet();
+    const visitedDryRunForms = new WeakSet();
     state.stats = createStats();
     state.stopRequested = false;
     state.running = true;
@@ -548,9 +549,9 @@
             `подряд ошибок: ${consecutiveFailures})...`
         );
 
-        const form = settings.dryRun && state.stats.previews > 0
-          ? findUnprocessedForm(previewedForms)
-          : await waitForNextForm(settings, previewedForms);
+        const form = settings.dryRun
+          ? findUnprocessedForm(visitedDryRunForms)
+          : await waitForNextForm(settings);
         if (form === STOPPED) {
           state.stats.stopped = true;
           break;
@@ -574,8 +575,10 @@
           status: result.preview ? "preview" : result.ok ? (result.skipped ? "skipped" : "success") : result.stopped ? "stopped" : "error",
           reason: result.reason || null,
         });
-        if (result.preview) {
-          previewedForms.add(form);
+        if (settings.dryRun) {
+          // Every dry-run form is visited once, including forms that fail
+          // validation, so preview cannot keep polling the same DOM node.
+          visitedDryRunForms.add(form);
         }
         scheduleUiUpdate();
 
@@ -861,7 +864,10 @@
       state,
       normalizeGradeRange,
       selectGradeFromRange,
+      processAllSequentially,
+      getState: () => state,
     };
+    window.__STEP_AUTO_GRADER_TEST_API__ = window.__stepAutoGraderTestApi;
     return;
   }
 
@@ -871,9 +877,10 @@
     normalizeGradeRange,
     selectGradeFromRange,
   });
-  createPanel();
-  observeDom();
-
-  console.log("скрипт загружен. UI готов, запускаю processAllFormsSequentially()");
-  void processAllSequentially();
+  if (!isTestRun) {
+    createPanel();
+    observeDom();
+    console.log("скрипт загружен. UI готов, запускаю processAllFormsSequentially()");
+    void processAllSequentially();
+  }
 })();
