@@ -5,10 +5,8 @@ const vm = require("node:vm");
 
 function loadHistoryApi() {
   const source = fs.readFileSync("index.js", "utf8");
-  const marker = "  window.stepAutoGraderHistory =";
-  const prefix = source.slice(0, source.indexOf(marker));
   const context = {
-    console: { warn() {}, log() {}, debug() {} },
+    console: { warn() {}, log() {}, debug() {}, error() {}, table() {} },
     localStorage: { getItem() { return null; }, setItem() {} },
     Date,
     Math,
@@ -18,14 +16,29 @@ function loadHistoryApi() {
     Set,
     String,
     Symbol,
+    Array,
+    Promise,
+    WeakSet,
+    MutationObserver: class {},
+    queueMicrotask,
+    setTimeout,
+    clearTimeout,
     window: null,
+    document: {
+      body: {},
+      documentElement: {},
+      querySelectorAll: () => [],
+    },
   };
   context.window = context;
-  vm.runInNewContext(
-    `${prefix} globalThis.api = { normalize: normalizeHistoryPayload, serialize: serializeHistory }; })();`,
-    context
-  );
-  return context.api;
+  context.window.__STEP_AUTO_GRADER_TEST__ = true;
+  vm.runInNewContext(source, context);
+  return {
+    normalize: context.window.__stepAutoGraderTestApi.normalizeHistoryPayload ||
+      context.window.stepAutoGraderHistory.normalize,
+    serialize: context.window.__stepAutoGraderTestApi.serializeHistory ||
+      context.window.stepAutoGraderHistory.serialize,
+  };
 }
 
 test("history round-trips through the versioned payload", () => {

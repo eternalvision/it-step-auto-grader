@@ -38,7 +38,7 @@
   const STOPPED = Symbol("stopped");
   const EMPTY_COMMENT = Symbol("empty_comment");
   const ALLOWED_STRATEGIES = new Set(["random", "preferred-low", "preferred-high"]);
-  const isTestRun = window.__STEP_AUTO_GRADER_TEST__ === true;
+  const isTestRun = typeof window !== "undefined" && window.__STEP_AUTO_GRADER_TEST__ === true;
 
   function createStorageAdapter({
     storage,
@@ -123,7 +123,7 @@
   }
 
   const state = {
-    settings: loadSettings(),
+    settings: null,
     running: false,
     stopRequested: false,
     runPromise: null,
@@ -255,6 +255,8 @@
   function loadSettings() {
     return settingsStorage.read();
   }
+
+  state.settings = loadSettings();
 
   function saveSettings() {
     settingsStorage.write(state.settings);
@@ -1198,6 +1200,8 @@
       detectSubmitState,
       waitSubmitFinished,
       createStorageAdapter,
+      normalizeHistoryPayload,
+      serializeHistory,
     };
     window.__STEP_AUTO_GRADER_TEST_API__ = window.__stepAutoGraderTestApi;
     window.stepAutoGraderHistory = Object.freeze({
