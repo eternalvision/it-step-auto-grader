@@ -29,7 +29,11 @@
 
   const SETTINGS_KEY = "step-auto-grader:settings";
   const HISTORY_KEY = "step-auto-grader:history";
+  const HISTORY_SCHEMA_VERSION = 2;
   const MAX_HISTORY = 20;
+  const MAX_HISTORY_LABEL = 120;
+  const MAX_HISTORY_REASON = 160;
+  const HISTORY_STATUSES = new Set(["preview", "skipped", "success", "stopped", "error"]);
   const STOPPED = Symbol("stopped");
   const ALLOWED_STRATEGIES = new Set(["random", "preferred-low", "preferred-high"]);
 
@@ -104,11 +108,70 @@
     }
   }
 
+  function createHistoryId() {
+    if (window.crypto?.randomUUID) {
+      return window.crypto.randomUUID();
+    }
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  function normalizeHistoryEntry(value, index = 0) {
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+    const time = typeof value.time === "string" && !Number.isNaN(Date.parse(value.time))
+      ? value.time
+      : null;
+    const status = HISTORY_STATUSES.has(value.status) ? value.status : null;
+    if (!time || !status) {
+      return null;
+    }
+    const grade = Number.isInteger(value.grade) && value.grade >= 0 && value.grade <= 100
+      ? value.grade
+      : null;
+    return {
+      id: typeof value.id === "string" && value.id.length <= 100 ? value.id : `legacy-${index}-${time}`,
+      time,
+      studentId: safeString(value.studentId, "", 100),
+      formId: safeString(value.formId, "", 100),
+      label: safeString(value.label, "форма", MAX_HISTORY_LABEL),
+      grade,
+      status,
+      reason: safeString(value.reason, "", MAX_HISTORY_REASON) || null,
+    };
+  }
+
+  function normalizeHistoryPayload(value) {
+    const entries = Array.isArray(value)
+      ? value
+      : value && value.version === HISTORY_SCHEMA_VERSION && Array.isArray(value.entries)
+        ? value.entries
+        : [];
+    return entries
+      .map((entry, index) => normalizeHistoryEntry(entry, index))
+      .filter(Boolean)
+      .slice(0, MAX_HISTORY);
+  }
+
+  function serializeHistory(entries) {
+    return JSON.stringify({
+      version: HISTORY_SCHEMA_VERSION,
+      entries: normalizeHistoryPayload(entries),
+    });
+  }
+
   function loadHistory() {
     try {
       const stored = window.localStorage.getItem(HISTORY_KEY);
-      const history = stored ? JSON.parse(stored) : [];
-      return Array.isArray(history) ? history.slice(0, MAX_HISTORY) : [];
+      if (!stored) {
+        return [];
+      }
+      const parsed = JSON.parse(stored);
+      const normalized = normalizeHistoryPayload(parsed);
+      if (Array.isArray(parsed) || parsed?.version !== HISTORY_SCHEMA_VERSION) {
+        window.localStorage.setItem(HISTORY_KEY, serializeHistory(normalized));
+      }
+      return normalized;
     } catch (error) {
       console.warn("[step-auto-grader] Не удалось прочитать историю:", error);
       return [];
@@ -117,7 +180,8 @@
 
   function saveHistory() {
     try {
-      window.localStorage.setItem(HISTORY_KEY, JSON.stringify(state.history.slice(0, MAX_HISTORY)));
+      state.history = normalizeHistoryPayload(state.history);
+      window.localStorage.setItem(HISTORY_KEY, serializeHistory(state.history));
     } catch (error) {
       console.warn("[step-auto-grader] Не удалось сохранить историю:", error);
     }
@@ -125,10 +189,11 @@
 
   function addHistory(entry) {
     state.history.unshift({
+      id: createHistoryId(),
       time: new Date().toISOString(),
       ...entry,
     });
-    state.history = state.history.slice(0, MAX_HISTORY);
+    state.history = normalizeHistoryPayload(state.history);
     saveHistory();
     scheduleUiUpdate();
   }
@@ -422,12 +487,22 @@
     return { ok: true };
   };
 
-  function getFormLabel(form, index) {
-    return (
-      form.getAttribute("data-student") ||
-      form.getAttribute("data-student-name") ||
-      `форма #${index}`
-    ).slice(0, 100);
+  function getFormMetadata(form, index) {
+    return {
+      studentId: safeString(
+        form.getAttribute("data-student-id") || form.getAttribute("data-studentId"),
+        "",
+        100
+      ),
+      formId: safeString(form.getAttribute("data-form-id") || form.id, "", 100),
+      label: safeString(
+        form.getAttribute("data-student") ||
+          form.getAttribute("data-student-name") ||
+          `форма #${index}`,
+        "форма",
+        MAX_HISTORY_LABEL
+      ),
+    };
   }
 
   const processOneForm = async (form, index, settings) => {
@@ -537,7 +612,7 @@
 
         updateStats(result);
         addHistory({
-          label: getFormLabel(form, index),
+          ...getFormMetadata(form, index),
           grade: result.grade ?? null,
           status: result.preview ? "preview" : result.ok ? (result.skipped ? "skipped" : "success") : result.stopped ? "stopped" : "error",
           reason: result.reason || null,
@@ -785,19 +860,26 @@
     for (const [key, element] of Object.entries(panel.stats)) {
       element.textContent = state.stats[key] ?? 0;
     }
-    panel.history.innerHTML = state.history.length
-      ? state.history.slice(0, 8).map((entry) => `
-        <div class="history-row">
-          <span class="label">${escapeHtml(entry.label || "форма")}</span>
-          <span class="tag">${escapeHtml(entry.status)} · ${formatHistoryTime(entry.time)}</span>
-        </div>`).join("")
-      : '<span class="subtle">История пока пуста</span>';
-  }
-
-  function escapeHtml(value) {
-    return String(value).replace(/[&<>"']/g, (character) => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
-    }[character]));
+    panel.history.replaceChildren();
+    if (!state.history.length) {
+      const empty = document.createElement("span");
+      empty.className = "subtle";
+      empty.textContent = "История пока пуста";
+      panel.history.appendChild(empty);
+      return;
+    }
+    for (const entry of state.history.slice(0, 8)) {
+      const row = document.createElement("div");
+      row.className = "history-row";
+      const label = document.createElement("span");
+      label.className = "label";
+      label.textContent = entry.label || "форма";
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = `${entry.status} · ${formatHistoryTime(entry.time)}`;
+      row.append(label, tag);
+      panel.history.appendChild(row);
+    }
   }
 
   function scheduleUiUpdate() {
@@ -818,6 +900,13 @@
     state.observer = new MutationObserver(() => scheduleUiUpdate());
     state.observer.observe(document.body, { childList: true, subtree: true });
   }
+
+  window.stepAutoGraderHistory = Object.freeze({
+    normalize: normalizeHistoryPayload,
+    serialize: serializeHistory,
+    maxEntries: MAX_HISTORY,
+    schemaVersion: HISTORY_SCHEMA_VERSION,
+  });
 
   window.processAllFormsSequentially = processAllSequentially;
   window.stopAllFormsSequentially = stopAllFormsSequentially;
