@@ -39,7 +39,7 @@ jobs:
       - name: Publish beta release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: v0.0.0-beta.${{ github.run_number }}
+          RELEASE_TAG: v0.0.${{ github.run_number }}-beta
         run: |
           gh release create "$RELEASE_TAG" \
             dist/it-step-auto-grader-extension-beta.zip \
