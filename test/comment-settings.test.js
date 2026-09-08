@@ -36,7 +36,7 @@ test("normalizes persisted comment settings and saves the empty value", () => {
 
   api.state.settings = api.normalizeSettings({ autoComment: "" });
   api.saveSettings();
-  assert.equal(JSON.parse(storage.get("step-auto-grader:settings")).autoComment, "");
+  assert.equal(JSON.parse(storage.get("step-auto-grader:settings")).data.autoComment, "");
 });
 
 test("fills textarea with native setter and Angular events", () => {

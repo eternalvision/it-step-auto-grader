@@ -34,6 +34,7 @@ function loadHelpers() {
     querySelectorAll() { return []; },
   };
   const window = {
+    __STEP_AUTO_GRADER_TEST__: true,
     localStorage: {
       getItem() { return null; },
       setItem() {},

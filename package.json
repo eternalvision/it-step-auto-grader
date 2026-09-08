@@ -2,6 +2,8 @@
   "name": "it-step-auto-grader",
   "private": true,
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "build": "node scripts/build-extension.js",
+    "package": "npm run build"
   }
 }

@@ -71,7 +71,7 @@
             envelope.version !== version ||
             !Object.prototype.hasOwnProperty.call(envelope, "data")
           ) {
-            return fallback();
+            return normalize(envelope);
           }
           return normalize(envelope.data);
         } catch (error) {
@@ -190,6 +190,10 @@
       ? Math.min(pool.length - 1, Math.max(0, Math.floor(randomValue * pool.length)))
       : 0;
     return pool[index];
+  }
+
+  function selectGradeFromRange(grades, settings = {}, random = Math.random) {
+    return selectGrade(grades, settings, random);
   }
 
   function safeInteger(value, fallback, min, max) {
@@ -366,6 +370,7 @@
       let settled = false;
       let observer = null;
       let timer;
+      let fallbackPoll;
 
       const finish = (result) => {
         if (settled) {
@@ -373,8 +378,11 @@
         }
         settled = true;
         clearTimeout(timer);
+        if (typeof clearInterval === "function") {
+          clearInterval(fallbackPoll);
+        }
         state.waiters.delete(wake);
-        observer?.disconnect();
+        observer?.disconnect?.();
         resolve(result);
       };
 
@@ -400,13 +408,18 @@
         ? new MutationObserver(check)
         : null;
       timer = setTimeout(() => finish(null), Math.max(0, Number(timeout) || 0));
+      if (typeof setInterval === "function") {
+        fallbackPoll = setInterval(check, Math.max(25, Number(_interval) || 100));
+      }
       state.waiters.add(wake);
-      observer?.observe(target, {
+      if (observer && typeof observer.observe === "function") {
+        observer.observe(target, {
         childList: true,
         subtree: true,
         attributes: true,
         attributeFilter: ["disabled", "aria-disabled", "aria-checked", "class"],
-      });
+        });
+      }
       check();
     });
 
@@ -1203,7 +1216,22 @@
       normalizeHistoryPayload,
       serializeHistory,
     };
+    window.stepAutoGraderHelpers = Object.freeze({
+      createStats,
+      normalizeGrade,
+      normalizeGrades,
+      normalizeGradeRange,
+      normalizeSettings,
+      selectGrade,
+      selectGradeFromRange,
+      updateStats,
+    });
     window.__STEP_AUTO_GRADER_TEST_API__ = window.__stepAutoGraderTestApi;
+    window.__stepAutoGraderInternals = Object.freeze({
+      captureSubmitSnapshot,
+      detectSubmitState,
+      waitSubmitFinished,
+    });
     window.stepAutoGraderHistory = Object.freeze({
       normalize: normalizeHistoryPayload,
       serialize: serializeHistory,
