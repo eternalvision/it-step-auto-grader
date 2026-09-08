@@ -30,6 +30,13 @@ jobs:
           RELEASE_CHANNEL: alpha
       - name: Package source code
         run: git archive --format=tar.gz --prefix=it-step-auto-grader-${GITHUB_SHA}/ "$GITHUB_SHA" -o dist/it-step-auto-grader-source-alpha.tar.gz
+      - name: Upload unpacked extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: it-step-auto-grader-extension-alpha-unpacked
+          path: dist/it-step-auto-grader-extension/
+          if-no-files-found: error
+          retention-days: 14
       - name: Publish alpha release
         env:
           GH_TOKEN: ${{ github.token }}
