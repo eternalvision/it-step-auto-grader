@@ -2,8 +2,8 @@ name: Publish production
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -29,26 +29,34 @@ jobs:
       - run: npm run build
         env:
           RELEASE_CHANNEL: production
+      - name: Calculate production version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          beta_tag="$(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/tags?per_page=100" \
+            --jq '.[].name' |
+            grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-beta$' |
+            while read -r tag; do
+              commit="$(git rev-list -n 1 "$tag" 2>/dev/null || true)"
+              if [ -n "$commit" ] && git merge-base --is-ancestor "$commit" "$GITHUB_SHA"; then
+                printf '%s\n' "$tag"
+              fi
+            done |
+            sort -V | tail -n 1 || true)"
+          if [ -z "$beta_tag" ]; then
+            echo "No beta tag from dev is contained in main"
+            exit 1
+          fi
+          stable_tag="$(printf '%s\n' "$beta_tag" | sed -E 's/^v[0-9]+\.([0-9]+)\.([0-9]+)-beta$/v1.\1.\2/')"
+          echo "tag=$stable_tag" >> "$GITHUB_OUTPUT"
       - name: Publish production release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
-          if ! printf '%s\n' "$RELEASE_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "Production tags must use vMAJOR.MINOR.PATCH: $RELEASE_TAG"
-            exit 1
-          fi
-          case "$RELEASE_TAG" in
-            *-alpha.*|*-beta.*)
-              echo "Production tags cannot have alpha/beta suffixes: $RELEASE_TAG"
-              exit 1
-              ;;
-          esac
-          git fetch origin main
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "Production tags must point to a commit contained in main"
-            exit 1
-          fi
           mv dist/it-step-auto-grader-extension-production.zip \
             "dist/it-step-auto-grader-extension-${RELEASE_TAG}.zip"
           git archive --format=tar.gz --prefix=it-step-auto-grader-${RELEASE_TAG}/ "$GITHUB_SHA" \
@@ -56,7 +64,7 @@ jobs:
       - name: Upload unpacked extension
         uses: actions/upload-artifact@v4
         with:
-          name: it-step-auto-grader-extension-${{ github.ref_name }}-unpacked
+          name: it-step-auto-grader-extension-${{ steps.version.outputs.tag }}-unpacked
           path: dist/it-step-auto-grader-extension/
           if-no-files-found: error
           retention-days: 30
