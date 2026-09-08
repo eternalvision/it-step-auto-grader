@@ -225,6 +225,12 @@ metadata для `itstep.org`/`itstep.ua` и встроенный код без �
 node --test index.test.js
 ```
 
+Поведение start/stop и состояния кнопок проверяются встроенным Node test runner:
+
+```bash
+node --test test/index.test.js
+```
+
 ## Disclaimer
 
 Проект является вспомогательным инструментом browser automation. Он не является
