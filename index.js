@@ -58,6 +58,50 @@
     };
   }
 
+  function normalizeGrade(value) {
+    const grade = Number(value);
+    return Number.isFinite(grade) && Number.isInteger(grade) && grade >= 0 && grade <= 100
+      ? grade
+      : null;
+  }
+
+  function normalizeGrades(grades) {
+    return [...new Set(
+      (Array.isArray(grades) ? grades : [])
+        .map(normalizeGrade)
+        .filter((grade) => grade !== null)
+    )].sort((left, right) => left - right);
+  }
+
+  function selectGrade(grades, settings = {}, random = Math.random) {
+    const normalizedGrades = normalizeGrades(grades);
+    if (!normalizedGrades.length) {
+      return null;
+    }
+
+    const minGrade = safeInteger(settings.minGrade, DEFAULT_SETTINGS.minGrade, 0, 100);
+    const maxGrade = safeInteger(settings.maxGrade, DEFAULT_SETTINGS.maxGrade, 0, 100);
+    const lowerBound = Math.min(minGrade, maxGrade);
+    const upperBound = Math.max(minGrade, maxGrade);
+    const preferred = normalizedGrades.filter(
+      (grade) => grade >= lowerBound && grade <= upperBound
+    );
+    const pool = preferred.length ? preferred : normalizedGrades;
+
+    if (settings.strategy === "preferred-low") {
+      return pool[0];
+    }
+    if (settings.strategy === "preferred-high") {
+      return pool[pool.length - 1];
+    }
+
+    const randomValue = Number(random());
+    const index = Number.isFinite(randomValue)
+      ? Math.min(pool.length - 1, Math.max(0, Math.floor(randomValue * pool.length)))
+      : 0;
+    return pool[index];
+  }
+
   function safeInteger(value, fallback, min, max) {
     const number = Number(value);
     if (!Number.isFinite(number)) {
@@ -254,29 +298,12 @@
         (button) => !button.disabled && button.getAttribute("aria-disabled") !== "true"
       )
       .map((button) => button.querySelector(SELECTORS.gradeLabel)?.textContent.trim())
-      .map((text) => Number.parseInt(text, 10))
-      .filter((grade) => !Number.isNaN(grade));
+      .map(normalizeGrade)
+      .filter((grade) => grade !== null);
   }
 
   function getAvailableGrade(form, settings) {
-    const grades = getAvailableGrades(form);
-    if (!grades.length) {
-      return null;
-    }
-
-    const preferred = grades.filter(
-      (grade) => grade >= settings.minGrade && grade <= settings.maxGrade
-    );
-    const pool = preferred.length ? preferred : grades;
-
-    if (settings.strategy === "preferred-low") {
-      return Math.min(...pool);
-    }
-    if (settings.strategy === "preferred-high") {
-      return Math.max(...pool);
-    }
-
-    return pool[Math.floor(Math.random() * pool.length)];
+    return selectGrade(getAvailableGrades(form), settings);
   }
 
   const clickGradeButton = (form, grade) => {
@@ -480,21 +507,27 @@
     return { ok: true, grade };
   };
 
-  function updateStats(result) {
-    state.stats.total += 1;
+  function updateStats(stats, result) {
+    const nextStats = {
+      ...stats,
+      gradeCounts: { ...stats.gradeCounts },
+      errors: { ...stats.errors },
+    };
+    nextStats.total += 1;
     if (result.preview) {
-      state.stats.previews += 1;
+      nextStats.previews += 1;
     } else if (result.skipped) {
-      state.stats.skipped += 1;
+      nextStats.skipped += 1;
     } else if (result.ok) {
-      state.stats.success += 1;
+      nextStats.success += 1;
     } else {
-      state.stats.failures += 1;
-      state.stats.errors[result.reason] = (state.stats.errors[result.reason] || 0) + 1;
+      nextStats.failures += 1;
+      nextStats.errors[result.reason] = (nextStats.errors[result.reason] || 0) + 1;
     }
     if (result.grade != null) {
-      state.stats.gradeCounts[result.grade] = (state.stats.gradeCounts[result.grade] || 0) + 1;
+      nextStats.gradeCounts[result.grade] = (nextStats.gradeCounts[result.grade] || 0) + 1;
     }
+    return nextStats;
   }
 
   const runSequentially = async () => {
@@ -535,7 +568,7 @@
         index += 1;
         const result = await processOneForm(form, index, settings);
 
-        updateStats(result);
+        state.stats = updateStats(state.stats, result);
         addHistory({
           label: getFormLabel(form, index),
           grade: result.grade ?? null,
@@ -698,6 +731,7 @@
               <div class="stat"><b data-stat="failures">0</b><span>ошибки</span></div>
             </div>
             <div class="subtle" data-pending style="margin-top:7px"></div>
+            <div class="subtle" data-summary style="margin-top:4px"></div>
             <div class="subtle" data-grades style="margin-top:4px"></div>
           </div>
           <div class="section">
@@ -715,6 +749,7 @@
       stop: shadow.querySelector("[data-stop]"),
       status: shadow.querySelector("[data-status]"),
       pending: shadow.querySelector("[data-pending]"),
+      summary: shadow.querySelector("[data-summary]"),
       grades: shadow.querySelector("[data-grades]"),
       settings: Object.fromEntries(
         Array.from(shadow.querySelectorAll("[data-setting]")).map((element) => [
@@ -777,6 +812,8 @@
         ? "Остановлено пользователем"
         : "Готов к запуску";
     panel.pending.textContent = `в DOM доступно форм: ${getPendingCount()}`;
+    panel.summary.textContent =
+      `обработано: ${state.stats.total} · стратегия: ${state.settings.strategy}`;
     const gradeSummary = Object.entries(state.stats.gradeCounts)
       .sort(([left], [right]) => Number(left) - Number(right))
       .map(([grade, count]) => `${grade}: ${count}`)
@@ -821,6 +858,14 @@
 
   window.processAllFormsSequentially = processAllSequentially;
   window.stopAllFormsSequentially = stopAllFormsSequentially;
+  window.stepAutoGraderHelpers = Object.freeze({
+    createStats,
+    normalizeGrade,
+    normalizeGrades,
+    normalizeSettings,
+    selectGrade,
+    updateStats,
+  });
   createPanel();
   observeDom();
 
