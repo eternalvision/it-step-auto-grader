@@ -22,6 +22,7 @@
 - `dry-run`: выбирает и логирует preview, но **не нажимает** оценку и
   `Принять`, не меняет комментарий;
 - live counters: успешные формы, preview, пропуски и ошибки;
+- summary по текущему запуску и распределение выбранных оценок;
 - последние обработанные формы и выбранные оценки в localStorage;
 - MutationObserver для обновления счётчиков при появлении новых форм;
 - понятный лог в DevTools Console и остановка между шагами и ожиданиями.
@@ -217,6 +218,12 @@ node --test test/tampermonkey-userscript.test.js
 
 Userscript находится в `tampermonkey/step-auto-grader.user.js`, содержит
 metadata для `itstep.org`/`itstep.ua` и встроенный код без внешних CDN.
+
+Чистые helpers стратегий и счётчиков покрыты отдельными тестами:
+
+```bash
+node --test index.test.js
+```
 
 ## Disclaimer
 
