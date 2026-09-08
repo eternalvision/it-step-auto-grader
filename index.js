@@ -43,6 +43,7 @@
     panel: null,
     observer: null,
     updateScheduled: false,
+    waiters: new Set(),
   };
 
   function createStats() {
@@ -142,30 +143,54 @@
       setTimeout(resolve, Math.max(0, Number(ms) || 0));
     });
 
-  const waitUntil = async (predicate, timeout, interval = DEFAULT_SETTINGS.pollInterval) => {
-    const startedAt = Date.now();
+  const waitUntil = (predicate, timeout, _interval, target = document.body || document.documentElement) =>
+    new Promise((resolve) => {
+      let settled = false;
+      let observer = null;
+      let timer;
 
-    while (Date.now() - startedAt < timeout) {
-      if (isStopped()) {
-        return STOPPED;
-      }
-
-      try {
-        const result = predicate();
-        if (result) {
-          return result;
+      const finish = (result) => {
+        if (settled) {
+          return;
         }
-      } catch (error) {
-        // DOM может измениться прямо во время проверки. Это ожидаемо для polling,
-        // но остаётся видимым в консоли вместо безмолвного подавления.
-        console.debug("[step-auto-grader] DOM polling повторит проверку:", error);
-      }
+        settled = true;
+        clearTimeout(timer);
+        state.waiters.delete(wake);
+        observer?.disconnect();
+        resolve(result);
+      };
 
-      await sleep(interval);
-    }
+      const check = () => {
+        if (isStopped()) {
+          finish(STOPPED);
+          return;
+        }
+        try {
+          const result = predicate();
+          if (result) {
+            finish(result);
+          }
+        } catch (error) {
+          // DOM может измениться прямо во время проверки; следующий mutation
+          // или timeout повторит проверку, не скрывая диагностическую ошибку.
+          console.debug("[step-auto-grader] DOM observer повторит проверку:", error);
+        }
+      };
+      const wake = () => check();
 
-    return null;
-  };
+      observer = typeof MutationObserver === "function" && target
+        ? new MutationObserver(check)
+        : null;
+      timer = setTimeout(() => finish(null), Math.max(0, Number(timeout) || 0));
+      state.waiters.add(wake);
+      observer?.observe(target, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["disabled", "aria-disabled", "aria-checked", "class"],
+      });
+      check();
+    });
 
   const hasGradeButtons = (form) =>
     form.querySelectorAll(SELECTORS.gradeButtons).length > 0;
@@ -208,7 +233,8 @@
         hasGradeButtons(form) &&
         areGradeButtonsEnabled(form),
       settings.maxWaitFormReady,
-      200
+      200,
+      form
     );
 
     if (ready === STOPPED) {
@@ -232,7 +258,8 @@
     const form = await waitUntil(
       () => findUnprocessedForm(ignoredForms),
       settings.maxWaitTime,
-      settings.nextFormPollInterval
+      settings.nextFormPollInterval,
+      document.body || document.documentElement
     );
 
     if (form === STOPPED) {
@@ -340,7 +367,9 @@
   const waitForAcceptButton = (form, settings) =>
     waitUntil(
       () => (form?.isConnected ? findAcceptButton(form) : null),
-      settings.maxWaitAccept
+      settings.maxWaitAccept,
+      DEFAULT_SETTINGS.pollInterval,
+      form
     );
 
   const waitForAcceptEnabled = (form, settings) =>
@@ -354,7 +383,7 @@
         button.getAttribute("aria-disabled") !== "true"
         ? button
         : null;
-    }, settings.maxWaitAccept);
+    }, settings.maxWaitAccept, DEFAULT_SETTINGS.pollInterval, form);
 
   const waitSubmitFinished = async (form, formsCountBeforeSubmit, settings) => {
     const result = await waitUntil(() => {
@@ -366,7 +395,7 @@
       }
       const nextForm = findUnprocessedForm();
       return nextForm && nextForm !== form;
-    }, settings.maxWaitSubmit);
+    }, settings.maxWaitSubmit, DEFAULT_SETTINGS.pollInterval, document.body || document.documentElement);
     return result === STOPPED ? STOPPED : Boolean(result);
   };
 
@@ -605,6 +634,9 @@
       return { ok: false, stopped: false, reason: "not_running" };
     }
     state.stopRequested = true;
+    for (const wake of state.waiters) {
+      wake();
+    }
     scheduleUiUpdate();
     console.log("[step-auto-grader] Запрошена остановка; текущий шаг будет завершён безопасно.");
     return { ok: true, stopped: true, reason: "stop_requested" };
@@ -815,7 +847,14 @@
     if (!document.body || state.observer) {
       return;
     }
-    state.observer = new MutationObserver(() => scheduleUiUpdate());
+    state.observer = new MutationObserver((mutations) => {
+      const relevantMutation = mutations.some(({ target }) =>
+        !state.panel?.host.contains(target)
+      );
+      if (relevantMutation) {
+        scheduleUiUpdate();
+      }
+    });
     state.observer.observe(document.body, { childList: true, subtree: true });
   }
 
