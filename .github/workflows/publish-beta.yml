@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -36,10 +38,35 @@ jobs:
           path: dist/it-step-auto-grader-extension/
           if-no-files-found: error
           retention-days: 14
+      - name: Calculate beta version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          alpha_tag="$(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/tags?per_page=100" \
+            --jq '.[].name' |
+            grep -E '^v0\.0\.[0-9]+-alpha$' |
+            sort -V | tail -n 1 || true)"
+          if [ -z "$alpha_tag" ]; then
+            echo "No alpha release tag exists to promote to beta"
+            exit 1
+          fi
+          patch="${alpha_tag#v0.0.}"
+          patch="${patch%-alpha}"
+          beta_minor="$(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/tags?per_page=100" --jq '.[].name' |
+              sed -nE "s/^v0\.([0-9]+)\.${patch}-beta$/\1/p" |
+              sort -n | tail -n 1
+          )"
+          beta_minor="${beta_minor:-0}"
+          beta_minor=$((beta_minor + 1))
+          echo "tag=v0.${beta_minor}.${patch}-beta" >> "$GITHUB_OUTPUT"
       - name: Publish beta release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: v0.0.${{ github.run_number }}-beta
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
           gh release create "$RELEASE_TAG" \
             dist/it-step-auto-grader-extension-beta.zip \
