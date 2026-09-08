@@ -33,8 +33,10 @@
 создаются самим скриптом на странице.
 
 1. Откройте `chrome://extensions` и включите **Developer mode**.
-2. Нажмите **Load unpacked** и выберите корень этого проекта (папку с
-   `manifest.json`).
+2. Нажмите **Load unpacked** и выберите папку
+   `dist/it-step-auto-grader-extension` после распаковки исходного кода или
+   скачивания CI artifact `*-unpacked`. Выбирать ZIP-файл в этом диалоге нельзя:
+   Chrome принимает здесь только директорию с `manifest.json`.
 3. Откройте или перезагрузите страницу проверки домашних заданий IT Step
    Academy на домене `*.itstep.org`, `*.itstep.org.ua` или `*.itstep.ua`.
 4. Панель `step / auto grader` появится справа снизу. Перед реальной обработкой
