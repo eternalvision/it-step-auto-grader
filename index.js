@@ -36,7 +36,9 @@
   const state = {
     settings: loadSettings(),
     running: false,
+    status: "idle",
     stopRequested: false,
+    runContext: null,
     runPromise: null,
     stats: createStats(),
     history: loadHistory(),
@@ -83,6 +85,17 @@
       maxFailures: safeInteger(value.maxFailures, DEFAULT_SETTINGS.maxFailures, 1, 100),
       dryRun: value.dryRun === true,
       strategy: ALLOWED_STRATEGIES.has(value.strategy) ? value.strategy : DEFAULT_SETTINGS.strategy,
+      maxWaitTime: safeInteger(value.maxWaitTime, DEFAULT_SETTINGS.maxWaitTime, 1, 120_000),
+      maxWaitFormReady: safeInteger(value.maxWaitFormReady, DEFAULT_SETTINGS.maxWaitFormReady, 1, 120_000),
+      maxWaitAccept: safeInteger(value.maxWaitAccept, DEFAULT_SETTINGS.maxWaitAccept, 1, 120_000),
+      maxWaitSubmit: safeInteger(value.maxWaitSubmit, DEFAULT_SETTINGS.maxWaitSubmit, 1, 120_000),
+      pollInterval: safeInteger(value.pollInterval, DEFAULT_SETTINGS.pollInterval, 1, 10_000),
+      nextFormPollInterval: safeInteger(
+        value.nextFormPollInterval,
+        DEFAULT_SETTINGS.nextFormPollInterval,
+        1,
+        10_000
+      ),
     };
   }
 
@@ -134,19 +147,43 @@
   }
 
   function isStopped() {
-    return state.stopRequested;
+    return state.stopRequested || Boolean(state.runContext?.controller.signal.aborted);
   }
 
-  const sleep = (ms) =>
+  const sleep = (ms, signal) =>
     new Promise((resolve) => {
-      setTimeout(resolve, Math.max(0, Number(ms) || 0));
+      if (signal?.aborted) {
+        resolve(STOPPED);
+        return;
+      }
+
+      let timer;
+      const cleanup = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+      };
+      const onAbort = () => {
+        cleanup();
+        resolve(STOPPED);
+      };
+
+      timer = setTimeout(() => {
+        cleanup();
+        resolve();
+      }, Math.max(0, Number(ms) || 0));
+      signal?.addEventListener("abort", onAbort, { once: true });
     });
 
-  const waitUntil = async (predicate, timeout, interval = DEFAULT_SETTINGS.pollInterval) => {
+  const waitUntil = async (
+    predicate,
+    timeout,
+    interval = DEFAULT_SETTINGS.pollInterval,
+    signal = state.runContext?.controller.signal
+  ) => {
     const startedAt = Date.now();
 
     while (Date.now() - startedAt < timeout) {
-      if (isStopped()) {
+      if (isStopped() || signal?.aborted) {
         return STOPPED;
       }
 
@@ -161,7 +198,9 @@
         console.debug("[step-auto-grader] DOM polling повторит проверку:", error);
       }
 
-      await sleep(interval);
+      if (await sleep(interval, signal) === STOPPED) {
+        return STOPPED;
+      }
     }
 
     return null;
@@ -201,14 +240,15 @@
       ).length
     : 0;
 
-  const waitFormReady = async (form, settings) => {
+  const waitFormReady = async (form, settings, signal) => {
     const ready = await waitUntil(
       () =>
         form?.isConnected &&
         hasGradeButtons(form) &&
         areGradeButtonsEnabled(form),
       settings.maxWaitFormReady,
-      200
+      200,
+      signal
     );
 
     if (ready === STOPPED) {
@@ -228,11 +268,12 @@
     return false;
   };
 
-  const waitForNextForm = async (settings, ignoredForms = null) => {
+  const waitForNextForm = async (settings, ignoredForms = null, signal) => {
     const form = await waitUntil(
       () => findUnprocessedForm(ignoredForms),
       settings.maxWaitTime,
-      settings.nextFormPollInterval
+      settings.nextFormPollInterval,
+      signal
     );
 
     if (form === STOPPED) {
@@ -337,13 +378,15 @@
     return true;
   };
 
-  const waitForAcceptButton = (form, settings) =>
+  const waitForAcceptButton = (form, settings, signal) =>
     waitUntil(
       () => (form?.isConnected ? findAcceptButton(form) : null),
-      settings.maxWaitAccept
+      settings.maxWaitAccept,
+      DEFAULT_SETTINGS.pollInterval,
+      signal
     );
 
-  const waitForAcceptEnabled = (form, settings) =>
+  const waitForAcceptEnabled = (form, settings, signal) =>
     waitUntil(() => {
       if (!form?.isConnected) {
         return null;
@@ -354,9 +397,9 @@
         button.getAttribute("aria-disabled") !== "true"
         ? button
         : null;
-    }, settings.maxWaitAccept);
+    }, settings.maxWaitAccept, DEFAULT_SETTINGS.pollInterval, signal);
 
-  const waitSubmitFinished = async (form, formsCountBeforeSubmit, settings) => {
+  const waitSubmitFinished = async (form, formsCountBeforeSubmit, settings, signal) => {
     const result = await waitUntil(() => {
       if (!form.isConnected) {
         return true;
@@ -366,16 +409,16 @@
       }
       const nextForm = findUnprocessedForm();
       return nextForm && nextForm !== form;
-    }, settings.maxWaitSubmit);
+    }, settings.maxWaitSubmit, DEFAULT_SETTINGS.pollInterval, signal);
     return result === STOPPED ? STOPPED : Boolean(result);
   };
 
-  const submitForm = async (form, settings) => {
+  const submitForm = async (form, settings, signal) => {
     if (isStopped()) {
       return { ok: false, stopped: true, reason: "stopped_before_submit" };
     }
 
-    let acceptButton = await waitForAcceptButton(form, settings);
+    let acceptButton = await waitForAcceptButton(form, settings, signal);
     if (acceptButton === STOPPED) {
       return { ok: false, stopped: true, reason: "stopped_waiting_for_accept" };
     }
@@ -393,7 +436,7 @@
       if (!commentAdded) {
         return { ok: false, reason: "comment_field_missing" };
       }
-      acceptButton = await waitForAcceptEnabled(form, settings);
+      acceptButton = await waitForAcceptEnabled(form, settings, signal);
       if (acceptButton === STOPPED) {
         return { ok: false, stopped: true, reason: "stopped_waiting_for_accept" };
       }
@@ -411,7 +454,7 @@
     acceptButton.click();
     console.log('  нажата кнопка "Принять"');
 
-    const submitted = await waitSubmitFinished(form, formsCountBeforeSubmit, settings);
+    const submitted = await waitSubmitFinished(form, formsCountBeforeSubmit, settings, signal);
     if (submitted === STOPPED) {
       return { ok: false, stopped: true, reason: "stopped_waiting_for_submit" };
     }
@@ -430,13 +473,13 @@
     ).slice(0, 100);
   }
 
-  const processOneForm = async (form, index, settings) => {
+  const processOneForm = async (form, index, settings, signal) => {
     console.log(`\n--- студент ${index} ---`);
     if (!form?.isConnected) {
       return { ok: false, reason: "form_disconnected" };
     }
 
-    const ready = await waitFormReady(form, settings);
+    const ready = await waitFormReady(form, settings, signal);
     if (ready === STOPPED) {
       return { ok: false, stopped: true, reason: "stopped_waiting_for_ready" };
     }
@@ -471,7 +514,7 @@
       return { ok: false, reason: "grade_click_failed", grade };
     }
 
-    const submitResult = await submitForm(form, settings);
+    const submitResult = await submitForm(form, settings, signal);
     if (!submitResult.ok) {
       console.log(`  ошибка: ${submitResult.reason}`);
       return { ...submitResult, grade };
@@ -482,6 +525,9 @@
 
   function updateStats(result) {
     state.stats.total += 1;
+    if (result.stopped) {
+      return;
+    }
     if (result.preview) {
       state.stats.previews += 1;
     } else if (result.skipped) {
@@ -497,12 +543,20 @@
     }
   }
 
-  const runSequentially = async () => {
+  const snapshotStats = () => ({
+    ...state.stats,
+    gradeCounts: { ...state.stats.gradeCounts },
+    errors: { ...state.stats.errors },
+  });
+
+  const runSequentially = async (runContext) => {
     const settings = normalizeSettings(state.settings);
     const previewedForms = new WeakSet();
     state.stats = createStats();
     state.stopRequested = false;
     state.running = true;
+    state.status = "running";
+    state.runContext = runContext;
     scheduleUiUpdate();
     console.log("старт последовательной обработки...");
 
@@ -518,7 +572,7 @@
 
         const form = settings.dryRun && state.stats.previews > 0
           ? findUnprocessedForm(previewedForms)
-          : await waitForNextForm(settings, previewedForms);
+          : await waitForNextForm(settings, previewedForms, runContext.controller.signal);
         if (form === STOPPED) {
           state.stats.stopped = true;
           break;
@@ -533,7 +587,12 @@
         }
 
         index += 1;
-        const result = await processOneForm(form, index, settings);
+        const result = await processOneForm(
+          form,
+          index,
+          settings,
+          runContext.controller.signal
+        );
 
         updateStats(result);
         addHistory({
@@ -566,26 +625,31 @@
         state.stats.stopped = true;
       }
     } finally {
+      if (isStopped()) {
+        state.stats.stopped = true;
+      }
+      const completedStats = snapshotStats();
       state.running = false;
+      state.status = "idle";
+      state.runContext = null;
       state.stopRequested = false;
       scheduleUiUpdate();
+      const summary = {
+        ...completedStats,
+        ok: !completedStats.stopped,
+        stopped: completedStats.stopped,
+      };
+      console.log("\n=== обработка завершена ===");
+      console.log(`успешно обработано студентов: ${summary.success}`);
+      console.log(`preview: ${summary.previews}`);
+      console.log(`пропущено: ${summary.skipped}`);
+      console.log(`ошибок: ${summary.failures}`);
+      if (Object.keys(summary.errors).length) {
+        console.log("\nошибки по типам:");
+        console.table(summary.errors);
+      }
+      return summary;
     }
-
-    const summary = {
-      ok: !state.stats.stopped,
-      stopped: state.stats.stopped,
-      ...state.stats,
-    };
-    console.log("\n=== обработка завершена ===");
-    console.log(`успешно обработано студентов: ${summary.success}`);
-    console.log(`preview: ${summary.previews}`);
-    console.log(`пропущено: ${summary.skipped}`);
-    console.log(`ошибок: ${summary.failures}`);
-    if (Object.keys(summary.errors).length) {
-      console.log("\nошибки по типам:");
-      console.table(summary.errors);
-    }
-    return summary;
   };
 
   const processAllSequentially = () => {
@@ -593,9 +657,11 @@
       console.log("[step-auto-grader] Запуск уже выполняется — второй запуск не создан.");
       return state.runPromise;
     }
-    state.runPromise = runSequentially().finally(() => {
-      state.runPromise = null;
-    });
+    const runContext = {
+      id: Symbol("run"),
+      controller: new AbortController(),
+    };
+    state.runPromise = runSequentially(runContext);
     return state.runPromise;
   };
 
@@ -604,7 +670,12 @@
       console.log("[step-auto-grader] Последовательный запуск не выполняется.");
       return { ok: false, stopped: false, reason: "not_running" };
     }
+    if (state.status === "stopping") {
+      return { ok: true, stopped: true, reason: "already_stopping" };
+    }
     state.stopRequested = true;
+    state.status = "stopping";
+    state.runContext?.controller.abort();
     scheduleUiUpdate();
     console.log("[step-auto-grader] Запрошена остановка; текущий шаг будет завершён безопасно.");
     return { ok: true, stopped: true, reason: "stop_requested" };
@@ -672,10 +743,10 @@
         <header class="header"><h1>step / auto grader</h1><span class="subtle" data-version>v2</span></header>
         <div class="body">
           <div class="controls">
-            <button class="primary" data-start>${svgIcon("play")}<span>Запустить</span></button>
-            <button data-stop>${svgIcon("stop")}<span>Стоп</span></button>
+            <button type="button" class="primary" data-start aria-label="Запустить обработку">${svgIcon("play")}<span>Запустить</span></button>
+            <button type="button" data-stop aria-label="Остановить обработку">${svgIcon("stop")}<span>Стоп</span></button>
           </div>
-          <div class="status" data-status>Готов к запуску</div>
+          <div class="status" data-status aria-live="polite" aria-atomic="true">Готов к запуску</div>
           <div class="section">
             <div class="section-title">${svgIcon("gear")} настройки</div>
             <div class="fields">
@@ -771,11 +842,15 @@
     }
     panel.start.disabled = state.running;
     panel.stop.disabled = !state.running;
-    panel.status.textContent = state.running
+    panel.start.setAttribute("aria-disabled", String(state.running));
+    panel.stop.setAttribute("aria-disabled", String(!state.running));
+    panel.status.textContent = state.status === "running"
       ? `${state.settings.dryRun ? "dry-run · " : ""}обработка… форма ${state.stats.total + 1}`
-      : state.stats.stopped
-        ? "Остановлено пользователем"
-        : "Готов к запуску";
+      : state.status === "stopping"
+        ? "Остановка…"
+        : state.stats.stopped
+          ? "Остановлено пользователем"
+          : "Готов к запуску";
     panel.pending.textContent = `в DOM доступно форм: ${getPendingCount()}`;
     const gradeSummary = Object.entries(state.stats.gradeCounts)
       .sort(([left], [right]) => Number(left) - Number(right))

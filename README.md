@@ -180,6 +180,12 @@ step-auto-grader/
 node --check index.js
 ```
 
+Поведение start/stop и состояния кнопок проверяются встроенным Node test runner:
+
+```bash
+node --test test/index.test.js
+```
+
 ## Disclaimer
 
 Проект является вспомогательным инструментом browser automation. Он не является
