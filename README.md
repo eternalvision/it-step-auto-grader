@@ -187,3 +187,11 @@ node --test test/mutation-observer.test.js
 
 Проект является вспомогательным инструментом browser automation. Он не является
 официальным продуктом IT Step Academy и не связан с разработчиками платформы.
+## CI/CD and publication channels
+
+Every workflow runs the Node test suite, the isolated Vitest suite, and the
+extension build before publishing. Pushes to non-`main`/non-`dev` branches are
+published as prereleases with an `alpha` tag and archive suffix. Pushes to
+`dev` are published as `beta` prereleases. Production releases are published
+only from `vMAJOR.MINOR.PATCH` tags that point to a commit contained in `main`;
+their archives have no alpha/beta suffix.
