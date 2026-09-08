@@ -5,8 +5,11 @@ const { execFileSync } = require("node:child_process");
 const root = path.resolve(__dirname, "..");
 const dist = path.join(root, "dist");
 const extensionDir = path.join(dist, "it-step-auto-grader-extension");
-const archive = path.join(dist, "it-step-auto-grader-extension.zip");
-const files = ["manifest.json", "index.js"];
+const channel = process.env.RELEASE_CHANNEL || "dev";
+const archiveName = `it-step-auto-grader-extension-${channel}.zip`;
+const archive = path.join(dist, archiveName);
+const builtIndex = path.join(root, ".vite-dist", "index.js");
+const files = ["manifest.json"];
 
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
 if (manifest.manifest_version !== 3 || !Array.isArray(manifest.content_scripts)) {
@@ -19,6 +22,10 @@ fs.mkdirSync(extensionDir, { recursive: true });
 for (const file of files) {
   fs.copyFileSync(path.join(root, file), path.join(extensionDir, file));
 }
+fs.copyFileSync(
+  fs.existsSync(builtIndex) ? builtIndex : path.join(root, "index.js"),
+  path.join(extensionDir, "index.js")
+);
 
 execFileSync("zip", ["-q", "-r", archive, "."], {
   cwd: extensionDir,

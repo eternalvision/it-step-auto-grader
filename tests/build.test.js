@@ -12,7 +12,7 @@ test("build creates a loadable Chrome extension archive", () => {
     stdio: "pipe",
   });
 
-  const archive = path.join(root, "dist", "it-step-auto-grader-extension.zip");
+  const archive = path.join(root, "dist", "it-step-auto-grader-extension-dev.zip");
   assert.equal(fs.existsSync(archive), true);
 
   const listing = execFileSync("unzip", ["-Z1", archive], {

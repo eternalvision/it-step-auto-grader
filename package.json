@@ -3,7 +3,12 @@
   "private": true,
   "scripts": {
     "test": "node --test",
-    "build": "node scripts/build-extension.js",
+    "test:vitest": "vitest run --config vitest.config.mjs",
+    "build": "vite build && node scripts/build-extension.js",
     "package": "npm run build"
+  },
+  "devDependencies": {
+    "vite": "^8.2.2",
+    "vitest": "^5.0.0"
   }
 }
