@@ -213,6 +213,7 @@ node --test tests/extension.test.js
 Every workflow runs the Node test suite, the isolated Vitest suite, and the
 extension build before publishing. Pushes to non-`main`/non-`dev` branches are
 published as prereleases in the form `v0.0.<patch>-alpha`. Pushes to `dev`
-promote the latest alpha patch and increment its beta minor version, producing
-tags such as `v0.11.24-beta`. Production releases use the matching stable
-version, such as `v1.11.24`, and must point to a commit contained in `main`.
+promote the latest merged alpha patch and increment its beta minor version,
+producing tags such as `v0.11.24-beta`. A push to `main` promotes the latest
+beta whose commit is contained in `main` to the matching stable version, such
+as `v1.11.24`; unmerged feature branches cannot affect beta or production.
