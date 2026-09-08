@@ -61,6 +61,7 @@ jobs:
             "dist/it-step-auto-grader-extension-${RELEASE_TAG}.zip"
           git archive --format=tar.gz --prefix=it-step-auto-grader-${RELEASE_TAG}/ "$GITHUB_SHA" \
             -o "dist/it-step-auto-grader-source-${RELEASE_TAG}.tar.gz"
+          (cd dist/it-step-auto-grader-extension && zip -q -r "../it-step-auto-grader-extension-${RELEASE_TAG}-unpacked.zip" .)
       - name: Upload unpacked extension
         uses: actions/upload-artifact@v4
         with:
@@ -75,6 +76,7 @@ jobs:
         run: |
           gh release create "$RELEASE_TAG" \
             "dist/it-step-auto-grader-extension-${RELEASE_TAG}.zip" \
+            "dist/it-step-auto-grader-extension-${RELEASE_TAG}-unpacked.zip" \
             "dist/it-step-auto-grader-source-${RELEASE_TAG}.tar.gz" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
