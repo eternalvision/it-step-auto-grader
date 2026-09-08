@@ -150,8 +150,14 @@ textarea[formcontrolname="coment"]
 
 Для комментария используется setter `HTMLTextAreaElement.prototype.value`,
 после чего отправляются `input`, `change` и `blur`, чтобы Angular Reactive Forms
-увидел изменение. Успешный submit определяется по удалению исходной формы,
-изменению количества форм или появлению другой необработанной формы.
+увидел изменение. Успешный submit подтверждается только сильным сигналом Angular UI: удалением
+исходной формы, success-состоянием (`data-state`, `data-status`, `aria-label`
+или state-классами) либо success-сообщением в snackbar/live-region. Изменение
+`disabled`/`aria-disabled`/`aria-busy` или CSS loading-класса считается только
+промежуточным сигналом: само по себе оно не завершает submit. Error-сообщение
+в live-region немедленно считается неудачей, а отсутствие подтверждения за
+`maxWaitSubmit` — таймаутом, чтобы смена количества форм или случайный rerender
+не давали ложный успех.
 
 ## Ограничения и безопасность
 
