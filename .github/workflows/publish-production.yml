@@ -77,6 +77,7 @@ jobs:
             "dist/it-step-auto-grader-extension-${RELEASE_TAG}.zip" \
             "dist/it-step-auto-grader-source-${RELEASE_TAG}.tar.gz" \
             --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
             --latest \
             --title "IT Step Auto Grader $RELEASE_TAG" \
             --generate-notes
